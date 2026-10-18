@@ -213,7 +213,6 @@ export function LandingPage() {
       <section className="section dark" id="expertise">
         <div className="container expertise-grid" data-reveal>
           <div>
-            <p className="eyebrow">Expertise</p>
             <h2>Strategy and execution.<br /><span>Working together.</span></h2>
             <p className="section-copy">From the first ad to the follow-up email, I connect the pieces of your funnel.</p>
           </div>
@@ -227,8 +226,10 @@ export function LandingPage() {
 
       <section className="section light process-section">
         <div className="container" data-reveal>
-          <p className="eyebrow">A simple process</p>
-          <h2>A simple process.<br />A clear way forward.</h2>
+          <div className="process-heading">
+            <p className="eyebrow">A simple process</p>
+            <h2>A simple process.<br />A clear way forward.</h2>
+          </div>
           <div className="process-grid">
             {process.map((item) => (
               <article className="process-item" key={item.title}><span className="step-number">{item.number}</span><div><h3>{item.title}</h3><p>{item.copy}</p></div></article>
@@ -239,24 +240,23 @@ export function LandingPage() {
 
       <section className="section dark about-section" id="about">
         <div className="container about-grid" data-reveal>
-          <p className="eyebrow">About Digital Saugat</p>
-          <div><h2>Hi, I’m Saugat Basnet.</h2><p>I combine marketing strategy, clear messaging and conversion-focused design to help businesses attract, nurture and convert.</p></div>
+          <div className="about-heading"><p className="eyebrow">About Digital Saugat</p><h2>Hi, I’m Saugat Basnet.</h2></div>
+          <div className="about-copy"><p>I combine marketing strategy, clear messaging and conversion-focused design to help businesses attract, nurture and convert.</p></div>
         </div>
       </section>
 
       <section className="section light consultation-section" id="consultation">
         <div className="container consultation-grid" data-reveal>
           <div className="consultation-copy">
-            <p className="eyebrow">Free consultation</p>
             <h2>Let’s turn more interest into customers.</h2>
             <p>Book a free consultation to discuss your business, your funnel and your next steps.</p>
           </div>
           <form ref={formRef} className="consultation-form" onSubmit={(event) => { event.preventDefault(); void sendForm(event.currentTarget); }}>
             <div className="honeypot" aria-hidden="true"><label htmlFor="company">Company</label><input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" /></div>
-            <div className="field"><label htmlFor="name">Your name <span aria-hidden="true">*</span></label><input id="name" name="name" type="text" autoComplete="name" required minLength={2} maxLength={80} /></div>
-            <div className="field"><label htmlFor="email">Email address <span aria-hidden="true">*</span></label><input id="email" name="email" type="email" autoComplete="email" required maxLength={254} /></div>
-            <div className="field"><label htmlFor="business">Website or business <span aria-hidden="true">*</span></label><input id="business" name="business" type="text" autoComplete="organization" required maxLength={160} /></div>
-            <div className="field"><label htmlFor="message">What would you like help with? <span>(optional)</span></label><textarea id="message" name="message" rows={4} maxLength={1500} /></div>
+            <div className="field"><label htmlFor="name">Your name <span aria-hidden="true">*</span></label><input id="name" name="name" type="text" placeholder="Your name" autoComplete="name" required minLength={2} maxLength={80} /></div>
+            <div className="field"><label htmlFor="email">Email address <span aria-hidden="true">*</span></label><input id="email" name="email" type="email" placeholder="you@example.com" autoComplete="email" required maxLength={254} /></div>
+            <div className="field"><label htmlFor="business">Website or business <span aria-hidden="true">*</span></label><input id="business" name="business" type="text" placeholder="https:// or your business name" autoComplete="organization" required maxLength={160} /></div>
+            <div className="field"><label htmlFor="message">What would you like help with? <span>(optional)</span></label><textarea id="message" name="message" rows={3} placeholder="A short note about your funnel" maxLength={1500} /></div>
             <button className="button form-button" type="submit" disabled={formState.kind === "submitting"}>{formState.kind === "submitting" ? "Sending…" : "Request a Free Consultation"} <Arrow /></button>
             <p className="privacy-note">I’ll use these details to respond to your enquiry.</p>
             <div className={`form-status ${formState.kind}`} role="status" aria-live="polite" aria-atomic="true">
@@ -267,7 +267,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <footer className="site-footer dark"><div className="container footer-inner"><div><Brand compact /><p>Attract. Nurture. Convert.</p></div><p>© {new Date().getFullYear()} Digital Saugat.</p></div></footer>
+      <footer className="site-footer dark"><div className="container footer-inner"><div><Brand compact /><p>© {new Date().getFullYear()} Digital Saugat. All rights reserved.</p></div><p>Attract. Nurture. Convert.</p></div></footer>
     </main>
   );
 }
