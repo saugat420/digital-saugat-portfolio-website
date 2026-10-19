@@ -25,8 +25,7 @@ const process = [
 
 type FormState =
   | { kind: "idle"; message: "" }
-  | { kind: "submitting"; message: string }
-  | { kind: "success"; message: string; retryAvailable?: boolean }
+  | { kind: "success"; message: string }
   | { kind: "error"; message: string };
 
 function Arrow() {
@@ -67,10 +66,8 @@ function FunnelVisual() {
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [formState, setFormState] = useState<FormState>({ kind: "idle", message: "" });
-  const submissionId = useRef("");
   const firstMenuLink = useRef<HTMLAnchorElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     document.documentElement.classList.add("js-ready");
@@ -98,6 +95,37 @@ export function LandingPage() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const enquiry = params.get("enquiry");
+    let nextState: FormState | null = null;
+
+    if (enquiry === "received") {
+      nextState = { kind: "success", message: "Thanks! Your enquiry has been received. I’ll get back to you soon." };
+    } else if (enquiry === "delayed") {
+      nextState = {
+        kind: "success",
+        message: "Thanks! Your enquiry has been received. Your details are safely recorded and I’ll get back to you soon.",
+      };
+    } else if (enquiry === "check") {
+      nextState = { kind: "error", message: "Please check the form and try again." };
+    } else if (enquiry === "retry") {
+      nextState = {
+        kind: "error",
+        message: "Your enquiry could not be delivered just now. Please try again or email digitalsaugatb@gmail.com.",
+      };
+    }
+
+    if (enquiry) {
+      window.history.replaceState({}, "", `${window.location.pathname}#consultation`);
+    }
+
+    if (!nextState) return;
+    const status = nextState;
+    const timer = window.setTimeout(() => setFormState(status), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     if (!menuOpen) return;
     firstMenuLink.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
@@ -113,73 +141,6 @@ export function LandingPage() {
       document.body.classList.remove("menu-is-open");
     };
   }, [menuOpen]);
-
-  async function sendForm(form: HTMLFormElement) {
-    if (!submissionId.current) submissionId.current = crypto.randomUUID();
-    setFormState({ kind: "submitting", message: "Sending your enquiry…" });
-    const data = new FormData(form);
-    const payload = {
-      submissionId: submissionId.current,
-      name: String(data.get("name") || ""),
-      email: String(data.get("email") || ""),
-      business: String(data.get("business") || ""),
-      goal: String(data.get("goal") || ""),
-      budget: String(data.get("budget") || ""),
-      readiness: String(data.get("readiness") || ""),
-      challenge: String(data.get("challenge") || ""),
-      formCheck: String(data.get("contact_preference_confirm") || ""),
-      sourcePageUrl: window.location.href,
-    };
-
-    try {
-      let result: { received?: boolean; notified?: boolean; message?: string } | null = null;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          const response = await fetch("/api/consultation", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const responseText = await response.text();
-          let parsed: { received?: boolean; notified?: boolean; message?: string } = {};
-          if (responseText) {
-            try { parsed = JSON.parse(responseText) as typeof parsed; } catch { /* HTTP status remains authoritative. */ }
-          }
-
-          if (response.ok) {
-            result = parsed.received === false ? parsed : { ...parsed, received: true };
-            break;
-          }
-          if (response.status < 500 || attempt === 2) {
-            result = parsed;
-            break;
-          }
-        } catch {
-          if (attempt === 2) throw new Error("network_failed");
-        }
-        await new Promise((resolve) => window.setTimeout(resolve, 650 * (attempt + 1)));
-      }
-
-      if (!result) throw new Error("submission_failed");
-      if (result.received) {
-        setFormState({
-          kind: "success",
-          message: result.notified
-            ? "Thanks! Your enquiry has been received. I’ll get back to you soon."
-            : "Thanks! Your enquiry has been received. I’ll get back to you soon. The email alert is delayed, but your details are safely recorded.",
-          retryAvailable: !result.notified,
-        });
-        if (result.notified) {
-          form.reset();
-          submissionId.current = "";
-        }
-        return;
-      }
-      setFormState({ kind: "error", message: result.message || "I couldn’t send this automatically. Your answers are still here—please try once more or email digitalsaugatb@gmail.com." });
-    } catch {
-      setFormState({ kind: "error", message: "I couldn’t send this automatically. Your answers are still here—please try once more or email digitalsaugatb@gmail.com." });
-    }
-  }
 
   return (
     <main>
@@ -298,7 +259,7 @@ export function LandingPage() {
             <h2>Let’s turn more interest into customers.</h2>
             <p>Answer a few quick questions so I can understand your goals, recommend the right next step and make our consultation useful from the start.</p>
           </div>
-          <form ref={formRef} className="consultation-form" onSubmit={(event) => { event.preventDefault(); void sendForm(event.currentTarget); }}>
+          <form className="consultation-form" method="post" action="/api/consultation">
             <div className="honeypot" aria-hidden="true">
               <input name="contact_preference_confirm" type="text" tabIndex={-1} autoComplete="new-password" />
             </div>
@@ -340,11 +301,10 @@ export function LandingPage() {
               </select>
             </div>
             <div className="field"><label htmlFor="challenge">What is the biggest challenge holding your growth back? <span aria-hidden="true">*</span></label><textarea id="challenge" name="challenge" rows={4} placeholder="Tell me what is happening now and what you want to change" required minLength={15} maxLength={1500} /></div>
-            <button className="button form-button" type="submit" disabled={formState.kind === "submitting"}>{formState.kind === "submitting" ? "Sending…" : "Request a Free Consultation"} <Arrow /></button>
+            <button className="button form-button" type="submit">Request a Free Consultation <Arrow /></button>
             <p className="privacy-note">I’ll review your answers before the call and only use them to respond to your enquiry.</p>
             <div className={`form-status ${formState.kind}`} role="status" aria-live="polite" aria-atomic="true">
               {formState.message}
-              {formState.kind === "success" && formState.retryAvailable ? <button className="retry-button" type="button" onClick={() => formRef.current && void sendForm(formRef.current)}>Retry the email alert</button> : null}
             </div>
           </form>
         </div>

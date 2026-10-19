@@ -78,7 +78,7 @@ function validate(input: unknown): { data?: Enquiry; error?: string; code?: stri
   if (!input || typeof input !== "object") return { error: "Please check the form and try again.", code: "invalid_payload" };
   const value = input as Record<string, unknown>;
   const data: Enquiry = {
-    submissionId: clean(value.submissionId, 64),
+    submissionId: clean(value.submissionId, 64) || crypto.randomUUID(),
     name: clean(value.name, 80),
     email: clean(value.email, 254).toLowerCase(),
     business: clean(value.business, 160),
@@ -87,7 +87,7 @@ function validate(input: unknown): { data?: Enquiry; error?: string; code?: stri
     readiness: clean(value.readiness, 80),
     challenge: cleanMessage(value.challenge, 1500),
     sourcePageUrl: clean(value.sourcePageUrl, 500),
-    formCheck: clean(value.formCheck, 100),
+    formCheck: clean(value.formCheck ?? value.contact_preference_confirm, 100),
   };
   if (data.formCheck) return { error: "Please check the form and try again.", code: "spam_check" };
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.submissionId)) return { error: "Please refresh the page and try again.", code: "submission_id" };
@@ -536,20 +536,47 @@ async function sendNotifications(data: Enquiry, submittedAt: string, stored = tr
 }
 
 export async function POST(request: Request) {
-  if (Number(request.headers.get("content-length") || 0) > 10_000) return json({ message: "Please shorten your message and try again." }, 413);
+  const contentType = request.headers.get("content-type") || "";
+  const isNativeForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
   const configuredOrigin = process.env.SITE_URL;
+  const respond = (body: Record<string, unknown>, status = 200) => {
+    if (!isNativeForm) return json(body, status);
+
+    let result = "check";
+    if (body.received === true) result = body.notified === false ? "delayed" : "received";
+    else if (status >= 500) result = "retry";
+
+    let destination: URL;
+    try {
+      destination = new URL(configuredOrigin || request.url);
+    } catch {
+      destination = new URL(request.url);
+    }
+    destination.pathname = "/";
+    destination.search = "";
+    destination.searchParams.set("enquiry", result);
+    destination.hash = "consultation";
+    return Response.redirect(destination, 303);
+  };
+
+  if (Number(request.headers.get("content-length") || 0) > 10_000) return respond({ message: "Please shorten your message and try again." }, 413);
   const origin = request.headers.get("origin");
-  if (configuredOrigin && origin && new URL(configuredOrigin).origin !== origin) return json({ message: "This request could not be verified." }, 403);
-  if (isRateLimited(request)) return json({ message: "Too many attempts. Please wait a few minutes and try again." }, 429);
+  if (configuredOrigin && origin && new URL(configuredOrigin).origin !== origin) return respond({ message: "This request could not be verified." }, 403);
+  if (isRateLimited(request)) return respond({ message: "Too many attempts. Please wait a few minutes and try again." }, 429);
 
   let input: unknown;
-  try { input = await request.json(); } catch { return json({ message: "Please check the form and try again." }, 400); }
+  try {
+    input = isNativeForm ? Object.fromEntries((await request.formData()).entries()) : await request.json();
+  } catch {
+    return respond({ message: "Please check the form and try again." }, 400);
+  }
   const validated = validate(input);
   if (!validated.data) {
     console.warn("consultation_validation_failed", validated.code || "unknown");
-    return json({ message: validated.error }, 400);
+    return respond({ message: validated.error }, 400);
   }
   const data = validated.data;
+  if (!data.sourcePageUrl) data.sourcePageUrl = request.headers.get("referer") || "";
 
   const submittedAt = new Date().toISOString();
   let token: string | null = null;
@@ -578,7 +605,7 @@ export async function POST(request: Request) {
     }
   }
 
-  if (record?.values[7] === "SENT") return json({ received: true, notified: true, stored: true, duplicate: true });
+  if (record?.values[7] === "SENT") return respond({ received: true, notified: true, stored: true, duplicate: true });
 
   const isNewRecord = Boolean(record && record.values.length >= 11);
   const notificationData: Enquiry = record ? {
@@ -601,7 +628,7 @@ export async function POST(request: Request) {
       await updateStatus(token, record.row, notified ? "SENT" : "PARTIAL — check email delivery");
     }
     if (record || notification.ownerSent) {
-      return json({
+      return respond({
         received: true,
         notified,
         stored: Boolean(record),
@@ -614,11 +641,11 @@ export async function POST(request: Request) {
 
   if (record && token) {
     try { await updateStatus(token, record.row, "FAILED — retry available"); } catch { /* The saved row remains the source of truth. */ }
-    return json({ received: true, notified: false, stored: true, retryAvailable: true }, 202);
+    return respond({ received: true, notified: false, stored: true, retryAvailable: true }, 202);
   }
 
   console.error("consultation_unavailable", data.submissionId.slice(-8), storageError instanceof Error ? storageError.message : "all_delivery_channels_failed");
-  return json({
+  return respond({
     received: false,
     message: "I couldn’t send this automatically. Your answers are still here—please try once more or email digitalsaugatb@gmail.com.",
   }, 503);
