@@ -5,7 +5,10 @@ type Enquiry = {
   name: string;
   email: string;
   business: string;
-  message: string;
+  goal: string;
+  budget: string;
+  readiness: string;
+  challenge: string;
   sourcePageUrl: string;
   company: string;
 };
@@ -19,6 +22,27 @@ const attempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 5;
 const RECIPIENT = "bsaugat59@gmail.com";
+const GOALS = new Set([
+  "More qualified leads",
+  "Better website or landing page conversions",
+  "Email nurturing and automation",
+  "A complete funnel strategy",
+  "Not sure yet",
+]);
+const BUDGETS = new Set([
+  "Under USD 1,000/month",
+  "USD 1,000–3,000/month",
+  "USD 3,000–5,000/month",
+  "USD 5,000–10,000/month",
+  "USD 10,000+/month",
+  "Not decided yet",
+]);
+const READINESS_OPTIONS = new Set([
+  "Ready to start now",
+  "Ready within the next 30 days",
+  "Planning for the next 1–3 months",
+  "Exploring options for later",
+]);
 
 function json(body: object, status = 200) {
   return Response.json(body, {
@@ -43,7 +67,10 @@ function validate(input: unknown): { data?: Enquiry; error?: string } {
     name: clean(value.name, 80),
     email: clean(value.email, 254).toLowerCase(),
     business: clean(value.business, 160),
-    message: cleanMessage(value.message, 1500),
+    goal: clean(value.goal, 100),
+    budget: clean(value.budget, 80),
+    readiness: clean(value.readiness, 80),
+    challenge: cleanMessage(value.challenge, 1500),
     sourcePageUrl: clean(value.sourcePageUrl, 500),
     company: clean(value.company, 100),
   };
@@ -52,6 +79,10 @@ function validate(input: unknown): { data?: Enquiry; error?: string } {
   if (data.name.length < 2) return { error: "Please enter your name." };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return { error: "Please enter a valid email address." };
   if (!data.business) return { error: "Please enter your website or business name." };
+  if (!GOALS.has(data.goal)) return { error: "Please select your main growth goal." };
+  if (!BUDGETS.has(data.budget)) return { error: "Please select an approximate monthly budget." };
+  if (!READINESS_OPTIONS.has(data.readiness)) return { error: "Please select when you are ready to move forward." };
+  if (data.challenge.length < 15) return { error: "Please share a little more about your biggest growth challenge." };
   if (data.sourcePageUrl) {
     try { new URL(data.sourcePageUrl); } catch { data.sourcePageUrl = ""; }
   }
@@ -115,7 +146,7 @@ function sheetsUrl(range: string) {
 }
 
 async function findRecord(token: string, id: string): Promise<SheetRecord | null> {
-  const response = await fetch(sheetsUrl("A:H"), { headers: { authorization: `Bearer ${token}` } });
+  const response = await fetch(sheetsUrl("A:K"), { headers: { authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error("google_sheet_read_failed");
   const result = await response.json() as { values?: string[][] };
   const index = (result.values || []).findIndex((row) => row[0] === id);
@@ -127,7 +158,7 @@ function safeCell(value: string) {
 }
 
 async function appendRecord(token: string, data: Enquiry, submittedAt: string) {
-  const response = await fetch(`${sheetsUrl("A:H")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
+  const response = await fetch(`${sheetsUrl("A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ values: [[
@@ -136,9 +167,12 @@ async function appendRecord(token: string, data: Enquiry, submittedAt: string) {
       safeCell(data.name),
       safeCell(data.email),
       safeCell(data.business),
-      safeCell(data.message),
+      safeCell(data.challenge),
       safeCell(data.sourcePageUrl),
       "PENDING",
+      safeCell(data.goal),
+      safeCell(data.budget),
+      safeCell(data.readiness),
     ]] }),
   });
   if (!response.ok) throw new Error("google_sheet_append_failed");
@@ -173,7 +207,10 @@ async function sendNotification(data: Enquiry, submittedAt: string) {
     <p><strong>Name:</strong> ${escapeHtml(data.name)}</p>
     <p><strong>Email:</strong> ${escapeHtml(data.email)}</p>
     <p><strong>Website or business:</strong> ${escapeHtml(data.business)}</p>
-    <p><strong>Message:</strong><br>${escapeHtml(data.message || "Not provided").replace(/\n/g, "<br>")}</p>
+    <p><strong>Main growth goal:</strong> ${escapeHtml(data.goal)}</p>
+    <p><strong>Monthly investment budget:</strong> ${escapeHtml(data.budget)}</p>
+    <p><strong>Readiness:</strong> ${escapeHtml(data.readiness)}</p>
+    <p><strong>Biggest growth challenge:</strong><br>${escapeHtml(data.challenge).replace(/\n/g, "<br>")}</p>
     <p><strong>Submitted:</strong> ${escapeHtml(localTime)} (Asia/Kathmandu)</p>
     <p><strong>Submission ID:</strong> ${escapeHtml(data.submissionId)}</p>
     ${sheetLink ? `<p><a href="${sheetLink}">Open the Google Sheet</a></p>` : ""}
@@ -227,6 +264,7 @@ export async function POST(request: Request) {
     return json({ received: false, message: "The enquiry service is temporarily unavailable. Please try again later." }, 503);
   }
 
+  const isNewRecord = record.values.length >= 11;
   if (record.values[7] === "SENT") return json({ received: true, notified: true, duplicate: true });
 
   const storedData: Enquiry = {
@@ -234,7 +272,10 @@ export async function POST(request: Request) {
     name: record.values[2] || data.name,
     email: record.values[3] || data.email,
     business: record.values[4] || data.business,
-    message: record.values[5] || data.message,
+    goal: isNewRecord ? record.values[8] || data.goal : data.goal,
+    budget: isNewRecord ? record.values[9] || data.budget : data.budget,
+    readiness: isNewRecord ? record.values[10] || data.readiness : data.readiness,
+    challenge: record.values[5] || data.challenge,
     sourcePageUrl: record.values[6] || data.sourcePageUrl,
     company: "",
   };

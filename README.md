@@ -14,9 +14,11 @@ Never commit `.env.local`, a service-account JSON file, or an API key.
 ## Connect Google Sheets
 
 1. In Google Sheets, create a new spreadsheet. Rename its first tab to `Consultation Enquiries`.
-2. Add this header row in cells A1:H1, in this exact order:
+2. Add this header row in cells A1:K1, in this exact order:
 
-   `Submission ID | Submitted at | Name | Email | Website or business | Message | Source page URL | Email notification status`
+   `Submission ID | Submitted at | Name | Email | Website or business | Biggest growth challenge | Source page URL | Email notification status | Main growth goal | Monthly budget | Readiness`
+
+   If your sheet already has the original A:H headers, keep them and add the final three headers in I1:K1: `Main growth goal | Monthly budget | Readiness`.
 
 3. Copy the Sheet ID from the URL. It is the value between `/d/` and `/edit`. Put that real value in `GOOGLE_SHEET_ID`; do not use a made-up ID.
 4. In Google Cloud Console, create or select a project, then open **APIs & Services → Library** and enable **Google Sheets API**.

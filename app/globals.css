@@ -350,7 +350,7 @@ h2 {
 .field { margin-bottom: 22px; }
 .field label { display: block; margin-bottom: 8px; color: #171717; font-size: 13px; font-weight: 800; }
 .field label span { color: #666; font-weight: 600; }
-.field input, .field textarea {
+.field input, .field select, .field textarea {
   width: 100%;
   border: 1px solid #c9c9c5;
   border-radius: 2px;
@@ -361,10 +361,24 @@ h2 {
   outline: none;
   transition: border-color .2s ease, box-shadow .2s ease;
 }
-.field input { height: 50px; }
+.field input, .field select { height: 50px; }
+.field select {
+  appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #555 50%),
+    linear-gradient(135deg, #555 50%, transparent 50%);
+  background-position:
+    calc(100% - 19px) 21px,
+    calc(100% - 14px) 21px;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+  padding-right: 42px;
+}
 .field textarea { min-height: 110px; resize: vertical; }
 .field input::placeholder, .field textarea::placeholder { color: #a5a5a0; }
-.field input:focus, .field textarea:focus { border-color: #696965; box-shadow: 0 0 0 2px rgba(255,208,0,.35); }
+.field input:focus, .field select:focus, .field textarea:focus { border-color: #696965; box-shadow: 0 0 0 2px rgba(255,208,0,.35); }
+.field-help { margin: 8px 0 0; color: #74746f; font-size: 11px; line-height: 1.45; }
 .form-button { width: 100%; min-height: 52px; margin-top: 2px; font-size: 14px; }
 .form-button:disabled { opacity: .65; cursor: wait; transform: none; }
 .privacy-note { margin: 12px 0 0; color: #74746f; font-size: 12px; line-height: 1.5; }
@@ -529,7 +543,8 @@ h2 {
   .consultation-copy { padding-top: 0; }
   .consultation-copy h2 { margin-bottom: 18px; font-size: clamp(42px, 10.5vw, 50px); }
   .field { margin-bottom: 20px; }
-  .field input { height: 48px; }
+  .field input, .field select { height: 48px; }
+  .field select { background-position: calc(100% - 19px) 20px, calc(100% - 14px) 20px; }
   .field textarea { min-height: 100px; }
   .form-button { min-height: 52px; }
 

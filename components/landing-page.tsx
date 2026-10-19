@@ -123,7 +123,10 @@ export function LandingPage() {
       name: String(data.get("name") || ""),
       email: String(data.get("email") || ""),
       business: String(data.get("business") || ""),
-      message: String(data.get("message") || ""),
+      goal: String(data.get("goal") || ""),
+      budget: String(data.get("budget") || ""),
+      readiness: String(data.get("readiness") || ""),
+      challenge: String(data.get("challenge") || ""),
       company: String(data.get("company") || ""),
       sourcePageUrl: window.location.href,
     };
@@ -270,16 +273,50 @@ export function LandingPage() {
         <div className="container consultation-grid" data-reveal>
           <div className="consultation-copy">
             <h2>Let’s turn more interest into customers.</h2>
-            <p>Book a free consultation to discuss your business, your funnel and your next steps.</p>
+            <p>Answer a few quick questions so I can understand your goals, recommend the right next step and make our consultation useful from the start.</p>
           </div>
           <form ref={formRef} className="consultation-form" onSubmit={(event) => { event.preventDefault(); void sendForm(event.currentTarget); }}>
             <div className="honeypot" aria-hidden="true"><label htmlFor="company">Company</label><input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" /></div>
             <div className="field"><label htmlFor="name">Your name <span aria-hidden="true">*</span></label><input id="name" name="name" type="text" placeholder="Your name" autoComplete="name" required minLength={2} maxLength={80} /></div>
             <div className="field"><label htmlFor="email">Email address <span aria-hidden="true">*</span></label><input id="email" name="email" type="email" placeholder="you@example.com" autoComplete="email" required maxLength={254} /></div>
             <div className="field"><label htmlFor="business">Website or business <span aria-hidden="true">*</span></label><input id="business" name="business" type="text" placeholder="https:// or your business name" autoComplete="organization" required maxLength={160} /></div>
-            <div className="field"><label htmlFor="message">What would you like help with? <span>(optional)</span></label><textarea id="message" name="message" rows={3} placeholder="A short note about your funnel" maxLength={1500} /></div>
+            <div className="field">
+              <label htmlFor="goal">What would you most like to improve? <span aria-hidden="true">*</span></label>
+              <select id="goal" name="goal" defaultValue="" required>
+                <option value="" disabled>Select your main goal</option>
+                <option>More qualified leads</option>
+                <option>Better website or landing page conversions</option>
+                <option>Email nurturing and automation</option>
+                <option>A complete funnel strategy</option>
+                <option>Not sure yet</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="budget">What monthly budget are you prepared to invest? <span aria-hidden="true">*</span></label>
+              <select id="budget" name="budget" defaultValue="" required>
+                <option value="" disabled>Select an approximate budget</option>
+                <option>Under USD 1,000/month</option>
+                <option>USD 1,000–3,000/month</option>
+                <option>USD 3,000–5,000/month</option>
+                <option>USD 5,000–10,000/month</option>
+                <option>USD 10,000+/month</option>
+                <option>Not decided yet</option>
+              </select>
+              <p className="field-help">This helps me suggest a realistic scope—not pressure you into a package.</p>
+            </div>
+            <div className="field">
+              <label htmlFor="readiness">How ready are you to move forward? <span aria-hidden="true">*</span></label>
+              <select id="readiness" name="readiness" defaultValue="" required>
+                <option value="" disabled>Select your timeline</option>
+                <option>Ready to start now</option>
+                <option>Ready within the next 30 days</option>
+                <option>Planning for the next 1–3 months</option>
+                <option>Exploring options for later</option>
+              </select>
+            </div>
+            <div className="field"><label htmlFor="challenge">What is the biggest challenge holding your growth back? <span aria-hidden="true">*</span></label><textarea id="challenge" name="challenge" rows={4} placeholder="Tell me what is happening now and what you want to change" required minLength={15} maxLength={1500} /></div>
             <button className="button form-button" type="submit" disabled={formState.kind === "submitting"}>{formState.kind === "submitting" ? "Sending…" : "Request a Free Consultation"} <Arrow /></button>
-            <p className="privacy-note">I’ll use these details to respond to your enquiry.</p>
+            <p className="privacy-note">I’ll review your answers before the call and only use them to respond to your enquiry.</p>
             <div className={`form-status ${formState.kind}`} role="status" aria-live="polite" aria-atomic="true">
               {formState.message}
               {formState.kind === "success" && formState.retryAvailable ? <button className="retry-button" type="button" onClick={() => formRef.current && void sendForm(formRef.current)}>Retry the email alert</button> : null}
