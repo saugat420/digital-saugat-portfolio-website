@@ -13,7 +13,7 @@ Never commit `.env.local`, a service-account JSON file, or an API key.
 
 ## Connect Google Sheets
 
-1. In Google Sheets, create a new spreadsheet. Rename its first tab to `Consultation Enquiries`.
+1. In Google Sheets, create a new spreadsheet. Rename its first tab to `Enquiry`.
 2. Add this header row in cells A1:K1, in this exact order:
 
    `Submission ID | Submitted at | Name | Email | Website or business | Biggest growth challenge | Source page URL | Email notification status | Main growth goal | Monthly budget | Readiness`
@@ -30,15 +30,15 @@ Never commit `.env.local`, a service-account JSON file, or an API key.
 
 The endpoint writes with `valueInputOption=RAW` and also prefixes formula-like visitor input before saving it. This protects the sheet from formula injection.
 
-## Connect Brevo email
+## Connect Gmail email
 
-1. Create a Brevo account and open **Settings → Senders, Domains & Dedicated IPs**.
-2. Add and verify the sender address or, preferably, authenticate the sender domain. Use that verified address for `BREVO_SENDER_EMAIL`.
-3. Open **SMTP & API → API Keys**, create an API key, and store it as `BREVO_API_KEY`.
-4. Set `BREVO_SENDER_NAME` to the display name you want recipients to see.
-5. The notification always goes to `bsaugat59@gmail.com`. The sender is the verified Brevo address, while Reply-To is set to the visitor’s validated email.
+1. Turn on 2-Step Verification for the Google account that will send the messages.
+2. Create a Google App Password for Mail and store it as `GMAIL_APP_PASSWORD`.
+3. Set `GMAIL_USER` to the sending Gmail address.
+4. Set `NOTIFICATION_EMAIL` to the address that should receive new-enquiry alerts.
+5. The business notification uses the visitor’s validated email as Reply-To. The visitor also receives a clean confirmation email summarizing what happens next.
 
-Brevo plan limits change over time, so confirm the current transactional-email allowance in the Brevo account before launch. A sender must be verified even when the recipient is a Gmail address.
+Google applies sending limits to Gmail and Google Workspace accounts, so this setup is best suited to normal portfolio enquiry volume.
 
 ## Production configuration
 
@@ -48,16 +48,16 @@ Set the following as encrypted/runtime environment values in the hosting platfor
 - `GOOGLE_SHEET_NAME`
 - `GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`
 - `GOOGLE_SHEETS_PRIVATE_KEY`
-- `BREVO_API_KEY`
-- `BREVO_SENDER_EMAIL`
-- `BREVO_SENDER_NAME`
+- `GMAIL_USER`
+- `GMAIL_APP_PASSWORD`
+- `NOTIFICATION_EMAIL`
 - `SITE_URL` — the exact production origin, such as `https://example.com`
 
 Deploy a new saved version after changing production environment values.
 
 ## Form reliability
 
-The server validates and bounds every field, checks a honeypot, applies a per-instance request limit, and uses a browser-generated UUID for idempotency. It looks up that UUID before appending, so normal retries do not create another row. Sheet storage and email notification are handled independently: a saved enquiry remains successful even if Brevo fails, its row is marked for retry, and the visitor can retry the email alert without re-entering the form. No success response is returned if the Sheet write cannot be verified.
+The server validates and bounds every field, checks a honeypot, applies a per-instance request limit, and uses a browser-generated UUID for idempotency. It looks up that UUID before appending, so normal retries do not create another row. Sheet storage and email notification are handled independently: a saved enquiry remains successful even if Gmail fails, its row is marked for retry, and the visitor can retry the email alert without re-entering the form. No success response is returned if the Sheet write cannot be verified.
 
 For higher-volume public traffic, replace the in-memory rate limiter with a durable edge rate-limiting service or D1-backed limit. The current limiter is intentionally dependency-free and is best-effort across separate Worker isolates.
 

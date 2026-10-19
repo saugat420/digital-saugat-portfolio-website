@@ -1,4 +1,6 @@
-export const runtime = "edge";
+import nodemailer from "nodemailer";
+
+export const runtime = "nodejs";
 
 type Enquiry = {
   submissionId: string;
@@ -21,7 +23,20 @@ type SheetRecord = {
 const attempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 5;
-const RECIPIENT = "bsaugat59@gmail.com";
+const DEFAULT_RECIPIENT = "digitalsaugatb@gmail.com";
+const SHEET_HEADERS = [
+  "Submission ID",
+  "Submitted at",
+  "Name",
+  "Email",
+  "Website or business",
+  "Biggest growth challenge",
+  "Source page URL",
+  "Email notification status",
+  "Main growth goal",
+  "Monthly budget",
+  "Readiness",
+];
 const GOALS = new Set([
   "More qualified leads",
   "Better website or landing page conversions",
@@ -135,14 +150,100 @@ async function googleAccessToken() {
   return result.access_token;
 }
 
+function rawSheetName() {
+  return process.env.GOOGLE_SHEET_NAME || "Enquiry";
+}
+
 function sheetName() {
-  return (process.env.GOOGLE_SHEET_NAME || "Consultation Enquiries").replace(/'/g, "''");
+  return rawSheetName().replace(/'/g, "''");
 }
 
 function sheetsUrl(range: string) {
   const sheetId = process.env.GOOGLE_SHEET_ID;
   if (!sheetId) throw new Error("google_sheet_missing");
   return `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`'${sheetName()}'!${range}`)}`;
+}
+
+function spreadsheetUrl(suffix = "") {
+  const sheetId = process.env.GOOGLE_SHEET_ID;
+  if (!sheetId) throw new Error("google_sheet_missing");
+  return `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}${suffix}`;
+}
+
+async function ensureSheetPresentation(token: string) {
+  const authHeaders = { authorization: `Bearer ${token}` };
+  const headerResponse = await fetch(`${sheetsUrl("A1:K1")}?valueInputOption=RAW`, {
+    method: "PUT",
+    headers: { ...authHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ values: [SHEET_HEADERS] }),
+  });
+  if (!headerResponse.ok) throw new Error("google_sheet_header_failed");
+
+  const metadataResponse = await fetch(`${spreadsheetUrl()}?fields=sheets.properties(sheetId,title)`, { headers: authHeaders });
+  if (!metadataResponse.ok) throw new Error("google_sheet_metadata_failed");
+  const metadata = await metadataResponse.json() as { sheets?: Array<{ properties?: { sheetId?: number; title?: string } }> };
+  const sheet = metadata.sheets?.find((item) => item.properties?.title === rawSheetName());
+  const sheetId = sheet?.properties?.sheetId;
+  if (typeof sheetId !== "number") throw new Error("google_sheet_tab_missing");
+
+  const columnWidths = [190, 175, 150, 220, 220, 360, 260, 190, 250, 190, 220];
+  const requests: object[] = [
+    {
+      updateSheetProperties: {
+        properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
+        fields: "gridProperties.frozenRowCount",
+      },
+    },
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
+        cell: {
+          userEnteredFormat: {
+            backgroundColor: { red: 0.067, green: 0.067, blue: 0.067 },
+            horizontalAlignment: "CENTER",
+            verticalAlignment: "MIDDLE",
+            wrapStrategy: "WRAP",
+            textFormat: { foregroundColor: { red: 1, green: 0.816, blue: 0 }, bold: true, fontSize: 10 },
+          },
+        },
+        fields: "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,textFormat)",
+      },
+    },
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
+        cell: { userEnteredFormat: { verticalAlignment: "TOP", wrapStrategy: "WRAP" } },
+        fields: "userEnteredFormat(verticalAlignment,wrapStrategy)",
+      },
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: "ROWS", startIndex: 0, endIndex: 1 },
+        properties: { pixelSize: 38 },
+        fields: "pixelSize",
+      },
+    },
+    {
+      updateBorders: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
+        bottom: { style: "SOLID_THICK", color: { red: 1, green: 0.816, blue: 0 } },
+      },
+    },
+    ...columnWidths.map((pixelSize, index) => ({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: "COLUMNS", startIndex: index, endIndex: index + 1 },
+        properties: { pixelSize },
+        fields: "pixelSize",
+      },
+    })),
+  ];
+
+  const formatResponse = await fetch(spreadsheetUrl(":batchUpdate"), {
+    method: "POST",
+    headers: { ...authHeaders, "content-type": "application/json" },
+    body: JSON.stringify({ requests }),
+  });
+  if (!formatResponse.ok) throw new Error("google_sheet_format_failed");
 }
 
 async function findRecord(token: string, id: string): Promise<SheetRecord | null> {
@@ -191,42 +292,96 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]!);
 }
 
-async function sendNotification(data: Enquiry, submittedAt: string) {
-  const apiKey = process.env.BREVO_API_KEY;
-  const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || "Digital Saugat Website";
-  if (!apiKey || !senderEmail) throw new Error("brevo_credentials_missing");
+function emailShell(preheader: string, heading: string, body: string) {
+  return `<!doctype html>
+  <html><body style="margin:0;background:#f3f3ef;color:#111;font-family:Arial,Helvetica,sans-serif;">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${escapeHtml(preheader)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f3ef;padding:32px 14px;">
+      <tr><td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#fff;border:1px solid #deded8;">
+          <tr><td style="background:#111;padding:24px 30px;border-bottom:4px solid #ffd000;">
+            <div style="font-size:20px;font-weight:800;letter-spacing:-.4px;color:#fff;">DIGITAL <span style="color:#ffd000;">SAUGAT</span></div>
+          </td></tr>
+          <tr><td style="padding:34px 30px 30px;">
+            <h1 style="margin:0 0 22px;font-size:30px;line-height:1.15;letter-spacing:-.8px;color:#111;">${heading}</h1>
+            ${body}
+          </td></tr>
+          <tr><td style="background:#111;padding:18px 30px;color:#aaa;font-size:12px;line-height:1.5;">Digital Saugat · Strategy, messaging and conversion-focused execution</td></tr>
+        </table>
+      </td></tr>
+    </table>
+  </body></html>`;
+}
+
+function detailRow(label: string, value: string) {
+  return `<tr>
+    <td style="width:38%;padding:12px 12px 12px 0;border-bottom:1px solid #e7e7e2;color:#686864;font-size:13px;font-weight:700;vertical-align:top;">${escapeHtml(label)}</td>
+    <td style="padding:12px 0;border-bottom:1px solid #e7e7e2;color:#111;font-size:14px;line-height:1.55;vertical-align:top;">${escapeHtml(value).replace(/\n/g, "<br>")}</td>
+  </tr>`;
+}
+
+async function sendNotifications(data: Enquiry, submittedAt: string) {
+  const gmailUser = process.env.GMAIL_USER;
+  const appPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
+  const recipient = process.env.NOTIFICATION_EMAIL || DEFAULT_RECIPIENT;
+  if (!gmailUser || !appPassword) throw new Error("gmail_credentials_missing");
+
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: gmailUser, pass: appPassword },
+  });
   const localTime = new Intl.DateTimeFormat("en-GB", {
     dateStyle: "medium",
     timeStyle: "long",
     timeZone: "Asia/Kathmandu",
   }).format(new Date(submittedAt));
   const sheetLink = process.env.GOOGLE_SHEET_ID ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(process.env.GOOGLE_SHEET_ID)}/edit` : "";
-  const html = `
-    <h2>New consultation request</h2>
-    <p><strong>Name:</strong> ${escapeHtml(data.name)}</p>
-    <p><strong>Email:</strong> ${escapeHtml(data.email)}</p>
-    <p><strong>Website or business:</strong> ${escapeHtml(data.business)}</p>
-    <p><strong>Main growth goal:</strong> ${escapeHtml(data.goal)}</p>
-    <p><strong>Monthly investment budget:</strong> ${escapeHtml(data.budget)}</p>
-    <p><strong>Readiness:</strong> ${escapeHtml(data.readiness)}</p>
-    <p><strong>Biggest growth challenge:</strong><br>${escapeHtml(data.challenge).replace(/\n/g, "<br>")}</p>
-    <p><strong>Submitted:</strong> ${escapeHtml(localTime)} (Asia/Kathmandu)</p>
-    <p><strong>Submission ID:</strong> ${escapeHtml(data.submissionId)}</p>
-    ${sheetLink ? `<p><a href="${sheetLink}">Open the Google Sheet</a></p>` : ""}
+  const ownerBody = `
+    <p style="margin:0 0 22px;color:#555;font-size:15px;line-height:1.65;">A new prospect has completed the consultation questionnaire. Their key details are below.</p>
+    <div style="display:inline-block;margin:0 0 20px;padding:8px 12px;background:#fff7c7;border-left:4px solid #ffd000;color:#111;font-size:13px;font-weight:700;">${escapeHtml(data.readiness)}</div>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      ${detailRow("Name", data.name)}
+      ${detailRow("Email", data.email)}
+      ${detailRow("Business", data.business)}
+      ${detailRow("Main growth goal", data.goal)}
+      ${detailRow("Monthly budget", data.budget)}
+      ${detailRow("Readiness", data.readiness)}
+      ${detailRow("Biggest challenge", data.challenge)}
+      ${detailRow("Submitted", `${localTime} (Asia/Kathmandu)`)}
+    </table>
+    ${sheetLink ? `<p style="margin:26px 0 0;"><a href="${sheetLink}" style="display:inline-block;background:#ffd000;color:#111;text-decoration:none;font-size:14px;font-weight:800;padding:13px 18px;">Open enquiry spreadsheet ↗</a></p>` : ""}
   `;
-  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
-    method: "POST",
-    headers: { "api-key": apiKey, "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({
-      sender: { email: senderEmail, name: senderName },
-      to: [{ email: RECIPIENT, name: "Saugat Basnet" }],
-      replyTo: { email: data.email, name: data.name },
-      subject: `New Digital Saugat Consultation Request — ${data.name}`,
-      htmlContent: html,
-    }),
+  const customerBody = `
+    <p style="margin:0 0 18px;color:#333;font-size:16px;line-height:1.7;">Hi ${escapeHtml(data.name)},</p>
+    <p style="margin:0 0 24px;color:#555;font-size:15px;line-height:1.7;">Thanks for sharing what is happening in your business. I’ve received your consultation request and will review your answers before getting back to you.</p>
+    <div style="background:#f8f8f4;border-left:4px solid #ffd000;padding:18px 20px;margin:0 0 24px;">
+      <p style="margin:0 0 9px;color:#777;font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;">Your consultation focus</p>
+      <p style="margin:0;color:#111;font-size:18px;font-weight:800;line-height:1.45;">${escapeHtml(data.goal)}</p>
+    </div>
+    <p style="margin:0 0 12px;color:#111;font-size:15px;font-weight:800;">What happens next</p>
+    <p style="margin:0 0 26px;color:#555;font-size:15px;line-height:1.7;">I’ll look at your goal, budget, timeline and current challenge, then reply with the best next step for your business.</p>
+    <p style="margin:0;color:#333;font-size:15px;line-height:1.7;">Speak soon,<br><strong>Saugat Basnet</strong><br><span style="color:#777;">Digital Saugat</span></p>
+  `;
+
+  const ownerText = `New consultation request\n\nName: ${data.name}\nEmail: ${data.email}\nBusiness: ${data.business}\nGoal: ${data.goal}\nBudget: ${data.budget}\nReadiness: ${data.readiness}\nChallenge: ${data.challenge}\nSubmitted: ${localTime} (Asia/Kathmandu)${sheetLink ? `\nSheet: ${sheetLink}` : ""}`;
+  const customerText = `Hi ${data.name},\n\nThanks for sharing what is happening in your business. I’ve received your consultation request and will review your answers before getting back to you.\n\nConsultation focus: ${data.goal}\n\nI’ll look at your goal, budget, timeline and current challenge, then reply with the best next step for your business.\n\nSpeak soon,\nSaugat Basnet\nDigital Saugat`;
+
+  await transporter.sendMail({
+    from: `Digital Saugat <${gmailUser}>`,
+    to: recipient,
+    replyTo: { address: data.email, name: data.name },
+    subject: `New consultation enquiry — ${data.name}`,
+    text: ownerText,
+    html: emailShell(`New enquiry from ${data.name}`, "New consultation enquiry", ownerBody),
   });
-  if (!response.ok) throw new Error("brevo_send_failed");
+  await transporter.sendMail({
+    from: `Digital Saugat <${gmailUser}>`,
+    to: { address: data.email, name: data.name },
+    replyTo: recipient,
+    subject: "Your Digital Saugat consultation request",
+    text: customerText,
+    html: emailShell("Your consultation request has been received", "Thanks — I’ve received your request.", customerBody),
+  });
 }
 
 export async function POST(request: Request) {
@@ -252,6 +407,11 @@ export async function POST(request: Request) {
 
   let record: SheetRecord | null;
   const submittedAt = new Date().toISOString();
+  try {
+    await ensureSheetPresentation(token);
+  } catch (error) {
+    console.warn("consultation_sheet_formatting_failed", error instanceof Error ? error.message : "unknown");
+  }
   try {
     record = await findRecord(token, data.submissionId);
     if (!record) {
@@ -281,7 +441,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    await sendNotification(storedData, record.values[1] || submittedAt);
+    await sendNotifications(storedData, record.values[1] || submittedAt);
     await updateStatus(token, record.row, "SENT");
     return json({ received: true, notified: true });
   } catch (error) {
