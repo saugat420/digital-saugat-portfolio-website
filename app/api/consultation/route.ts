@@ -24,19 +24,6 @@ const attempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 5;
 const DEFAULT_RECIPIENT = "digitalsaugatb@gmail.com";
-const SHEET_HEADERS = [
-  "Submission ID",
-  "Submitted at",
-  "Name",
-  "Email",
-  "Website or business",
-  "Biggest growth challenge",
-  "Source page URL",
-  "Email notification status",
-  "Main growth goal",
-  "Monthly budget",
-  "Readiness",
-];
 const GOALS = new Set([
   "More qualified leads",
   "Better website or landing page conversions",
@@ -72,6 +59,23 @@ function clean(value: unknown, max: number) {
 
 function cleanMessage(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().replace(/\r\n/g, "\n").slice(0, max) : "";
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function withRetry<T>(operation: () => Promise<T>, attempts = 3) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await wait(350 * (attempt + 1));
+    }
+  }
+  throw lastError;
 }
 
 function validate(input: unknown): { data?: Enquiry; error?: string; code?: string } {
@@ -182,154 +186,6 @@ async function getSheetId(token: string) {
   const sheetId = metadata.sheets?.find((item) => item.properties?.title === rawSheetName())?.properties?.sheetId;
   if (typeof sheetId !== "number") throw new Error("google_sheet_tab_missing");
   return sheetId;
-}
-
-async function ensureSheetPresentation(token: string) {
-  const authHeaders = { authorization: `Bearer ${token}` };
-  const headerResponse = await fetch(`${sheetsUrl("A1:K1")}?valueInputOption=RAW`, {
-    method: "PUT",
-    headers: { ...authHeaders, "content-type": "application/json" },
-    body: JSON.stringify({ values: [SHEET_HEADERS] }),
-  });
-  if (!headerResponse.ok) throw new Error("google_sheet_header_failed");
-
-  const metadataResponse = await fetch(`${spreadsheetUrl()}?fields=sheets(properties(sheetId,title),bandedRanges(bandedRangeId))`, {
-    headers: authHeaders,
-    cache: "no-store",
-  });
-  if (!metadataResponse.ok) throw new Error("google_sheet_metadata_failed");
-  const metadata = await metadataResponse.json() as {
-    sheets?: Array<{
-      properties?: { sheetId?: number; title?: string };
-      bandedRanges?: Array<{ bandedRangeId?: number }>;
-    }>;
-  };
-  const sheet = metadata.sheets?.find((item) => item.properties?.title === rawSheetName());
-  const sheetId = sheet?.properties?.sheetId;
-  if (typeof sheetId !== "number") throw new Error("google_sheet_tab_missing");
-
-  const columnWidths = [190, 190, 170, 225, 220, 380, 260, 180, 245, 190, 220];
-  const requests: object[] = [
-    ...(sheet?.bandedRanges || []).flatMap((banding) => typeof banding.bandedRangeId === "number"
-      ? [{ deleteBanding: { bandedRangeId: banding.bandedRangeId } }]
-      : []),
-    {
-      updateSheetProperties: {
-        properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
-        fields: "gridProperties.frozenRowCount",
-      },
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
-        cell: {
-          userEnteredFormat: {
-            backgroundColor: { red: 0.067, green: 0.067, blue: 0.067 },
-            horizontalAlignment: "CENTER",
-            verticalAlignment: "MIDDLE",
-            wrapStrategy: "WRAP",
-            textFormat: { foregroundColor: { red: 1, green: 0.816, blue: 0 }, bold: true, fontSize: 10 },
-          },
-        },
-        fields: "userEnteredFormat(backgroundColor,horizontalAlignment,verticalAlignment,wrapStrategy,textFormat)",
-      },
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
-        cell: {
-          userEnteredFormat: {
-            verticalAlignment: "MIDDLE",
-            wrapStrategy: "WRAP",
-            textFormat: {
-              foregroundColor: { red: 0.12, green: 0.12, blue: 0.12 },
-              fontFamily: "Arial",
-              fontSize: 10,
-            },
-          },
-        },
-        fields: "userEnteredFormat(verticalAlignment,wrapStrategy,textFormat)",
-      },
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 1, startColumnIndex: 2, endColumnIndex: 3 },
-        cell: { userEnteredFormat: { textFormat: { bold: true } } },
-        fields: "userEnteredFormat.textFormat.bold",
-      },
-    },
-    {
-      repeatCell: {
-        range: { sheetId, startRowIndex: 1, startColumnIndex: 7, endColumnIndex: 8 },
-        cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { bold: true } } },
-        fields: "userEnteredFormat(horizontalAlignment,textFormat.bold)",
-      },
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: "ROWS", startIndex: 0, endIndex: 1 },
-        properties: { pixelSize: 46 },
-        fields: "pixelSize",
-      },
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: "ROWS", startIndex: 1, endIndex: 1000 },
-        properties: { pixelSize: 48 },
-        fields: "pixelSize",
-      },
-    },
-    {
-      updateBorders: {
-        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
-        bottom: { style: "SOLID_THICK", color: { red: 1, green: 0.816, blue: 0 } },
-      },
-    },
-    {
-      setBasicFilter: {
-        filter: { range: { sheetId, startRowIndex: 0, startColumnIndex: 0, endColumnIndex: 11 } },
-      },
-    },
-    {
-      addBanding: {
-        bandedRange: {
-          range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 11 },
-          rowProperties: {
-            firstBandColor: { red: 1, green: 1, blue: 1 },
-            secondBandColor: { red: 0.965, green: 0.965, blue: 0.945 },
-          },
-        },
-      },
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 },
-        properties: { hiddenByUser: true },
-        fields: "hiddenByUser",
-      },
-    },
-    {
-      updateDimensionProperties: {
-        range: { sheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 },
-        properties: { hiddenByUser: true },
-        fields: "hiddenByUser",
-      },
-    },
-    ...columnWidths.map((pixelSize, index) => ({
-      updateDimensionProperties: {
-        range: { sheetId, dimension: "COLUMNS", startIndex: index, endIndex: index + 1 },
-        properties: { pixelSize },
-        fields: "pixelSize",
-      },
-    })),
-  ];
-
-  const formatResponse = await fetch(spreadsheetUrl(":batchUpdate"), {
-    method: "POST",
-    headers: { ...authHeaders, "content-type": "application/json" },
-    body: JSON.stringify({ requests }),
-  });
-  if (!formatResponse.ok) throw new Error("google_sheet_format_failed");
 }
 
 async function findRecord(token: string, id: string): Promise<SheetRecord | null> {
@@ -511,7 +367,7 @@ async function sendNotifications(data: Enquiry, submittedAt: string, stored = tr
   const ownerText = `New consultation request\n\nName: ${data.name}\nEmail: ${data.email}\nBusiness: ${data.business}\nGoal: ${data.goal}\nBudget: ${data.budget}\nReadiness: ${data.readiness}\nChallenge: ${data.challenge}\nSubmitted: ${localTime} (Asia/Kathmandu)${sheetLink ? `\nSheet: ${sheetLink}` : ""}`;
   const customerText = `Hi ${data.name},\n\nThanks for sharing what is happening in your business. I’ve received your consultation request and will review your answers before getting back to you.\n\nConsultation focus: ${data.goal}\n\nI’ll look at your goal, budget, timeline and current challenge, then reply with the best next step for your business.\n\nSpeak soon,\nSaugat Basnet\nDigital Saugat`;
 
-  const [ownerResult, customerResult] = await Promise.allSettled([transporter.sendMail({
+  const [ownerResult, customerResult] = await Promise.allSettled([withRetry(() => transporter.sendMail({
     from: `Digital Saugat <${gmailUser}>`,
     to: recipient,
     replyTo: { address: data.email, name: data.name },
@@ -519,7 +375,7 @@ async function sendNotifications(data: Enquiry, submittedAt: string, stored = tr
     subject: `New consultation enquiry — ${data.name}`,
     text: ownerText,
     html: emailShell(`New enquiry from ${data.name}`, "New consultation enquiry", ownerBody),
-  }), transporter.sendMail({
+  })), withRetry(() => transporter.sendMail({
     from: `Digital Saugat <${gmailUser}>`,
     to: { address: data.email, name: data.name },
     replyTo: recipient,
@@ -527,7 +383,7 @@ async function sendNotifications(data: Enquiry, submittedAt: string, stored = tr
     subject: "Your Digital Saugat consultation request",
     text: customerText,
     html: emailShell("Your consultation request has been received", "Thanks — I’ve received your request.", customerBody),
-  })]);
+  }))]);
 
   return {
     ownerSent: ownerResult.status === "fulfilled",
@@ -584,7 +440,7 @@ export async function POST(request: Request) {
   let storageError: unknown = null;
 
   try {
-    token = await googleAccessToken();
+    token = await withRetry(() => googleAccessToken());
   } catch (error) {
     storageError = error;
     console.error("consultation_storage_unavailable", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
@@ -592,13 +448,16 @@ export async function POST(request: Request) {
 
   if (token) {
     try {
-      await ensureSheetPresentation(token);
-    } catch (error) {
-      console.warn("consultation_sheet_formatting_failed", error instanceof Error ? error.message : "unknown");
-    }
-    try {
-      record = await findRecord(token, data.submissionId);
-      if (!record) record = await appendRecord(token, data, submittedAt);
+      record = await withRetry(() => findRecord(token!, data.submissionId));
+      if (!record) {
+        try {
+          record = await appendRecord(token, data, submittedAt);
+        } catch (appendError) {
+          await wait(1200);
+          record = await withRetry(() => findRecord(token!, data.submissionId));
+          if (!record) throw appendError;
+        }
+      }
     } catch (error) {
       storageError = error;
       console.error("consultation_storage_failed", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
@@ -625,7 +484,7 @@ export async function POST(request: Request) {
     const notification = await sendNotifications(notificationData, record?.values[1] || submittedAt, Boolean(record));
     const notified = notification.ownerSent && notification.customerSent;
     if (record && token) {
-      await updateStatus(token, record.row, notified ? "SENT" : "PARTIAL — check email delivery");
+      await withRetry(() => updateStatus(token!, record!.row, notified ? "SENT" : "PARTIAL — check email delivery"), 2);
     }
     if (record || notification.ownerSent) {
       return respond({
