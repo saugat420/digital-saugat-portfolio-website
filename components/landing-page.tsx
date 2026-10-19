@@ -288,7 +288,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      <footer className="site-footer dark"><div className="container footer-inner"><div><Brand compact /><p>© {new Date().getFullYear()} Digital Saugat. All rights reserved.</p></div><p>Attract. Nurture. Convert.</p></div></footer>
+      <footer className="site-footer dark"><div className="container footer-inner"><div><Brand compact /><p>© {new Date().getFullYear()} Digital Saugat. All rights reserved.</p></div></div></footer>
     </main>
   );
 }
