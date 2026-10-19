@@ -329,11 +329,17 @@ async function ensureSheetPresentation(token: string) {
 }
 
 async function findRecord(token: string, id: string): Promise<SheetRecord | null> {
-  const response = await fetch(sheetsUrl("A:K"), { headers: { authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new Error("google_sheet_read_failed");
-  const result = await response.json() as { values?: string[][] };
-  const index = (result.values || []).findIndex((row) => row[0] === id);
-  return index >= 0 ? { row: index + 1, values: result.values![index] } : null;
+  const idResponse = await fetch(sheetsUrl("A:A"), { headers: { authorization: `Bearer ${token}` } });
+  if (!idResponse.ok) throw new Error("google_sheet_read_failed");
+  const idResult = await idResponse.json() as { values?: string[][] };
+  const index = (idResult.values || []).findIndex((row) => row[0] === id);
+  if (index < 0) return null;
+
+  const row = index + 1;
+  const recordResponse = await fetch(sheetsUrl(`A${row}:K${row}`), { headers: { authorization: `Bearer ${token}` } });
+  if (!recordResponse.ok) throw new Error("google_sheet_record_read_failed");
+  const recordResult = await recordResponse.json() as { values?: string[][] };
+  return { row, values: recordResult.values?.[0] || [] };
 }
 
 function safeCell(value: string) {
