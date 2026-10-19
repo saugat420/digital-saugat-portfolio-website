@@ -340,25 +340,30 @@ function safeCell(value: string) {
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
-async function appendRecord(token: string, data: Enquiry, submittedAt: string) {
+async function appendRecord(token: string, data: Enquiry, submittedAt: string): Promise<SheetRecord> {
+  const values = [
+    data.submissionId,
+    submittedAt,
+    safeCell(data.name),
+    safeCell(data.email),
+    safeCell(data.business),
+    safeCell(data.challenge),
+    safeCell(data.sourcePageUrl),
+    "PENDING",
+    safeCell(data.goal),
+    safeCell(data.budget),
+    safeCell(data.readiness),
+  ];
   const response = await fetch(`${sheetsUrl("A:K")}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`, {
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ values: [[
-      data.submissionId,
-      submittedAt,
-      safeCell(data.name),
-      safeCell(data.email),
-      safeCell(data.business),
-      safeCell(data.challenge),
-      safeCell(data.sourcePageUrl),
-      "PENDING",
-      safeCell(data.goal),
-      safeCell(data.budget),
-      safeCell(data.readiness),
-    ]] }),
+    body: JSON.stringify({ values: [values] }),
   });
   if (!response.ok) throw new Error("google_sheet_append_failed");
+  const result = await response.json() as { updates?: { updatedRange?: string } };
+  const row = Number(result.updates?.updatedRange?.match(/![A-Z]+(\d+):/)?.[1]);
+  if (!Number.isInteger(row) || row < 2) throw new Error("google_sheet_append_row_missing");
+  return { row, values };
 }
 
 async function updateStatus(token: string, row: number, status: string) {
@@ -540,9 +545,7 @@ export async function POST(request: Request) {
   try {
     record = await findRecord(token, data.submissionId);
     if (!record) {
-      await appendRecord(token, data, submittedAt);
-      record = await findRecord(token, data.submissionId);
-      if (!record) throw new Error("google_sheet_verify_failed");
+      record = await appendRecord(token, data, submittedAt);
     }
   } catch (error) {
     console.error("consultation_storage_failed", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
