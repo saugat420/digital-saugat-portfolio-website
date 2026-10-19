@@ -394,7 +394,7 @@ async function sendNotifications(data: Enquiry, submittedAt: string, stored = tr
 export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") || "";
   const isNativeForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
-  const configuredOrigin = process.env.SITE_URL;
+  const requestUrl = new URL(request.url);
   const respond = (body: Record<string, unknown>, status = 200) => {
     if (!isNativeForm) return json(body, status);
 
@@ -402,12 +402,7 @@ export async function POST(request: Request) {
     if (body.received === true) result = body.notified === false ? "delayed" : "received";
     else if (status >= 500) result = "retry";
 
-    let destination: URL;
-    try {
-      destination = new URL(configuredOrigin || request.url);
-    } catch {
-      destination = new URL(request.url);
-    }
+    const destination = new URL(requestUrl.origin);
     destination.pathname = "/";
     destination.search = "";
     destination.searchParams.set("enquiry", result);
@@ -417,7 +412,7 @@ export async function POST(request: Request) {
 
   if (Number(request.headers.get("content-length") || 0) > 10_000) return respond({ message: "Please shorten your message and try again." }, 413);
   const origin = request.headers.get("origin");
-  if (configuredOrigin && origin && new URL(configuredOrigin).origin !== origin) return respond({ message: "This request could not be verified." }, 403);
+  if (origin && requestUrl.origin !== origin) return respond({ message: "This request could not be verified." }, 403);
   if (isRateLimited(request)) return respond({ message: "Too many attempts. Please wait a few minutes and try again." }, 429);
 
   let input: unknown;
