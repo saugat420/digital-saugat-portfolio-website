@@ -240,8 +240,29 @@ export function LandingPage() {
 
       <section className="section dark about-section" id="about">
         <div className="container about-grid" data-reveal>
-          <div className="about-heading"><p className="eyebrow">About Digital Saugat</p><h2>Hi, I’m Saugat Basnet.</h2></div>
-          <div className="about-copy"><p>I combine marketing strategy, clear messaging and conversion-focused design to help businesses attract, nurture and convert.</p></div>
+          <figure className="about-portrait">
+            <Image
+              src="/saugat-basnet.jpg"
+              alt="Portrait of Saugat Basnet"
+              width={1200}
+              height={1600}
+              sizes="(max-width: 760px) 320px, (max-width: 1200px) 30vw, 360px"
+            />
+          </figure>
+          <div className="about-content">
+            <div className="about-heading">
+              <p className="eyebrow">About Digital Saugat</p>
+              <h2>Hi, I’m Saugat Basnet.</h2>
+            </div>
+            <div className="about-copy">
+              <p>Since 2017, I’ve helped more than 100 businesses across a wide range of industries turn digital marketing into measurable growth.</p>
+              <p>I bring strategy, clear messaging and conversion-focused execution together to generate demand, increase sales and revenue, and ultimately improve profitability.</p>
+            </div>
+            <div className="about-stats" aria-label="Experience highlights">
+              <div><strong>9+</strong><span>years in digital marketing</span></div>
+              <div><strong>100+</strong><span>businesses supported</span></div>
+            </div>
+          </div>
         </div>
       </section>
 
