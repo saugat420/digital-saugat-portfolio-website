@@ -127,7 +127,7 @@ export function LandingPage() {
       budget: String(data.get("budget") || ""),
       readiness: String(data.get("readiness") || ""),
       challenge: String(data.get("challenge") || ""),
-      company: String(data.get("company") || ""),
+      formCheck: String(data.get("contact_preference_confirm") || ""),
       sourcePageUrl: window.location.href,
     };
 
@@ -276,7 +276,9 @@ export function LandingPage() {
             <p>Answer a few quick questions so I can understand your goals, recommend the right next step and make our consultation useful from the start.</p>
           </div>
           <form ref={formRef} className="consultation-form" onSubmit={(event) => { event.preventDefault(); void sendForm(event.currentTarget); }}>
-            <div className="honeypot" aria-hidden="true"><label htmlFor="company">Company</label><input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" /></div>
+            <div className="honeypot" aria-hidden="true">
+              <input name="contact_preference_confirm" type="text" tabIndex={-1} autoComplete="new-password" />
+            </div>
             <div className="field"><label htmlFor="name">Your name <span aria-hidden="true">*</span></label><input id="name" name="name" type="text" placeholder="Your name" autoComplete="name" required minLength={2} maxLength={80} /></div>
             <div className="field"><label htmlFor="email">Email address <span aria-hidden="true">*</span></label><input id="email" name="email" type="email" placeholder="you@example.com" autoComplete="email" required maxLength={254} /></div>
             <div className="field"><label htmlFor="business">Website or business <span aria-hidden="true">*</span></label><input id="business" name="business" type="text" placeholder="https:// or your business name" autoComplete="organization" required maxLength={160} /></div>

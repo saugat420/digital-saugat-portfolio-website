@@ -12,7 +12,7 @@ type Enquiry = {
   readiness: string;
   challenge: string;
   sourcePageUrl: string;
-  company: string;
+  formCheck: string;
 };
 
 type SheetRecord = {
@@ -74,8 +74,8 @@ function cleanMessage(value: unknown, max: number) {
   return typeof value === "string" ? value.trim().replace(/\r\n/g, "\n").slice(0, max) : "";
 }
 
-function validate(input: unknown): { data?: Enquiry; error?: string } {
-  if (!input || typeof input !== "object") return { error: "Please check the form and try again." };
+function validate(input: unknown): { data?: Enquiry; error?: string; code?: string } {
+  if (!input || typeof input !== "object") return { error: "Please check the form and try again.", code: "invalid_payload" };
   const value = input as Record<string, unknown>;
   const data: Enquiry = {
     submissionId: clean(value.submissionId, 64),
@@ -87,17 +87,17 @@ function validate(input: unknown): { data?: Enquiry; error?: string } {
     readiness: clean(value.readiness, 80),
     challenge: cleanMessage(value.challenge, 1500),
     sourcePageUrl: clean(value.sourcePageUrl, 500),
-    company: clean(value.company, 100),
+    formCheck: clean(value.formCheck, 100),
   };
-  if (data.company) return { error: "Please check the form and try again." };
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.submissionId)) return { error: "Please refresh the page and try again." };
-  if (data.name.length < 2) return { error: "Please enter your name." };
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return { error: "Please enter a valid email address." };
-  if (!data.business) return { error: "Please enter your website or business name." };
-  if (!GOALS.has(data.goal)) return { error: "Please select your main growth goal." };
-  if (!BUDGETS.has(data.budget)) return { error: "Please select an approximate monthly budget." };
-  if (!READINESS_OPTIONS.has(data.readiness)) return { error: "Please select when you are ready to move forward." };
-  if (data.challenge.length < 15) return { error: "Please share a little more about your biggest growth challenge." };
+  if (data.formCheck) return { error: "Please check the form and try again.", code: "spam_check" };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(data.submissionId)) return { error: "Please refresh the page and try again.", code: "submission_id" };
+  if (data.name.length < 2) return { error: "Please enter your name.", code: "name" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) return { error: "Please enter a valid email address.", code: "email" };
+  if (!data.business) return { error: "Please enter your website or business name.", code: "business" };
+  if (!GOALS.has(data.goal)) return { error: "Please select your main growth goal.", code: "goal" };
+  if (!BUDGETS.has(data.budget)) return { error: "Please select an approximate monthly budget.", code: "budget" };
+  if (!READINESS_OPTIONS.has(data.readiness)) return { error: "Please select when you are ready to move forward.", code: "readiness" };
+  if (data.challenge.length < 15) return { error: "Please share a little more about your biggest growth challenge.", code: "challenge" };
   if (data.sourcePageUrl) {
     try { new URL(data.sourcePageUrl); } catch { data.sourcePageUrl = ""; }
   }
@@ -170,6 +170,19 @@ function spreadsheetUrl(suffix = "") {
   return `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}${suffix}`;
 }
 
+async function getSheetId(token: string) {
+  const response = await fetch(`${spreadsheetUrl()}?fields=sheets.properties(sheetId,title)`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("google_sheet_metadata_failed");
+  const metadata = await response.json() as {
+    sheets?: Array<{ properties?: { sheetId?: number; title?: string } }>;
+  };
+  const sheetId = metadata.sheets?.find((item) => item.properties?.title === rawSheetName())?.properties?.sheetId;
+  if (typeof sheetId !== "number") throw new Error("google_sheet_tab_missing");
+  return sheetId;
+}
+
 async function ensureSheetPresentation(token: string) {
   const authHeaders = { authorization: `Bearer ${token}` };
   const headerResponse = await fetch(`${sheetsUrl("A1:K1")}?valueInputOption=RAW`, {
@@ -179,15 +192,23 @@ async function ensureSheetPresentation(token: string) {
   });
   if (!headerResponse.ok) throw new Error("google_sheet_header_failed");
 
-  const metadataResponse = await fetch(`${spreadsheetUrl()}?fields=sheets.properties(sheetId,title)`, { headers: authHeaders });
+  const metadataResponse = await fetch(`${spreadsheetUrl()}?fields=sheets(properties(sheetId,title),bandedRanges(bandedRangeId))`, { headers: authHeaders });
   if (!metadataResponse.ok) throw new Error("google_sheet_metadata_failed");
-  const metadata = await metadataResponse.json() as { sheets?: Array<{ properties?: { sheetId?: number; title?: string } }> };
+  const metadata = await metadataResponse.json() as {
+    sheets?: Array<{
+      properties?: { sheetId?: number; title?: string };
+      bandedRanges?: Array<{ bandedRangeId?: number }>;
+    }>;
+  };
   const sheet = metadata.sheets?.find((item) => item.properties?.title === rawSheetName());
   const sheetId = sheet?.properties?.sheetId;
   if (typeof sheetId !== "number") throw new Error("google_sheet_tab_missing");
 
-  const columnWidths = [190, 175, 150, 220, 220, 360, 260, 190, 250, 190, 220];
+  const columnWidths = [190, 190, 170, 225, 220, 380, 260, 180, 245, 190, 220];
   const requests: object[] = [
+    ...(sheet?.bandedRanges || []).flatMap((banding) => typeof banding.bandedRangeId === "number"
+      ? [{ deleteBanding: { bandedRangeId: banding.bandedRangeId } }]
+      : []),
     {
       updateSheetProperties: {
         properties: { sheetId, gridProperties: { frozenRowCount: 1 } },
@@ -212,14 +233,45 @@ async function ensureSheetPresentation(token: string) {
     {
       repeatCell: {
         range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
-        cell: { userEnteredFormat: { verticalAlignment: "TOP", wrapStrategy: "WRAP" } },
-        fields: "userEnteredFormat(verticalAlignment,wrapStrategy)",
+        cell: {
+          userEnteredFormat: {
+            verticalAlignment: "MIDDLE",
+            wrapStrategy: "WRAP",
+            textFormat: {
+              foregroundColor: { red: 0.12, green: 0.12, blue: 0.12 },
+              fontFamily: "Arial",
+              fontSize: 10,
+            },
+          },
+        },
+        fields: "userEnteredFormat(verticalAlignment,wrapStrategy,textFormat)",
+      },
+    },
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: 2, endColumnIndex: 3 },
+        cell: { userEnteredFormat: { textFormat: { bold: true } } },
+        fields: "userEnteredFormat.textFormat.bold",
+      },
+    },
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: 7, endColumnIndex: 8 },
+        cell: { userEnteredFormat: { horizontalAlignment: "CENTER", textFormat: { bold: true } } },
+        fields: "userEnteredFormat(horizontalAlignment,textFormat.bold)",
       },
     },
     {
       updateDimensionProperties: {
         range: { sheetId, dimension: "ROWS", startIndex: 0, endIndex: 1 },
-        properties: { pixelSize: 38 },
+        properties: { pixelSize: 46 },
+        fields: "pixelSize",
+      },
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: "ROWS", startIndex: 1, endIndex: 1000 },
+        properties: { pixelSize: 48 },
         fields: "pixelSize",
       },
     },
@@ -227,6 +279,36 @@ async function ensureSheetPresentation(token: string) {
       updateBorders: {
         range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 11 },
         bottom: { style: "SOLID_THICK", color: { red: 1, green: 0.816, blue: 0 } },
+      },
+    },
+    {
+      setBasicFilter: {
+        filter: { range: { sheetId, startRowIndex: 0, startColumnIndex: 0, endColumnIndex: 11 } },
+      },
+    },
+    {
+      addBanding: {
+        bandedRange: {
+          range: { sheetId, startRowIndex: 1, endRowIndex: 1000, startColumnIndex: 0, endColumnIndex: 11 },
+          rowProperties: {
+            firstBandColor: { red: 1, green: 1, blue: 1 },
+            secondBandColor: { red: 0.965, green: 0.965, blue: 0.945 },
+          },
+        },
+      },
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 },
+        properties: { hiddenByUser: true },
+        fields: "hiddenByUser",
+      },
+    },
+    {
+      updateDimensionProperties: {
+        range: { sheetId, dimension: "COLUMNS", startIndex: 6, endIndex: 7 },
+        properties: { hiddenByUser: true },
+        fields: "hiddenByUser",
       },
     },
     ...columnWidths.map((pixelSize, index) => ({
@@ -286,6 +368,46 @@ async function updateStatus(token: string, row: number, status: string) {
     body: JSON.stringify({ values: [[status]] }),
   });
   if (!response.ok) throw new Error("google_sheet_status_failed");
+
+  try {
+    const sheetId = await getSheetId(token);
+    const sent = status === "SENT";
+    const styleResponse = await fetch(spreadsheetUrl(":batchUpdate"), {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        requests: [{
+          repeatCell: {
+            range: {
+              sheetId,
+              startRowIndex: row - 1,
+              endRowIndex: row,
+              startColumnIndex: 7,
+              endColumnIndex: 8,
+            },
+            cell: {
+              userEnteredFormat: {
+                backgroundColor: sent
+                  ? { red: 0.86, green: 0.96, blue: 0.88 }
+                  : { red: 1, green: 0.9, blue: 0.9 },
+                horizontalAlignment: "CENTER",
+                textFormat: {
+                  bold: true,
+                  foregroundColor: sent
+                    ? { red: 0.08, green: 0.38, blue: 0.16 }
+                    : { red: 0.65, green: 0.08, blue: 0.08 },
+                },
+              },
+            },
+            fields: "userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)",
+          },
+        }],
+      }),
+    });
+    if (!styleResponse.ok) console.warn("consultation_status_style_failed");
+  } catch (error) {
+    console.warn("consultation_status_style_failed", error instanceof Error ? error.message : "unknown");
+  }
 }
 
 function escapeHtml(value: string) {
@@ -394,7 +516,10 @@ export async function POST(request: Request) {
   let input: unknown;
   try { input = await request.json(); } catch { return json({ message: "Please check the form and try again." }, 400); }
   const validated = validate(input);
-  if (!validated.data) return json({ message: validated.error }, 400);
+  if (!validated.data) {
+    console.warn("consultation_validation_failed", validated.code || "unknown");
+    return json({ message: validated.error }, 400);
+  }
   const data = validated.data;
 
   let token: string;
@@ -437,7 +562,7 @@ export async function POST(request: Request) {
     readiness: isNewRecord ? record.values[10] || data.readiness : data.readiness,
     challenge: record.values[5] || data.challenge,
     sourcePageUrl: record.values[6] || data.sourcePageUrl,
-    company: "",
+    formCheck: "",
   };
 
   try {
