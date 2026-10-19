@@ -447,7 +447,7 @@ function detailRow(label: string, value: string) {
   </tr>`;
 }
 
-async function sendNotifications(data: Enquiry, submittedAt: string) {
+async function sendNotifications(data: Enquiry, submittedAt: string, stored = true) {
   const gmailUser = process.env.GMAIL_USER;
   const appPassword = process.env.GMAIL_APP_PASSWORD?.replace(/\s/g, "");
   const recipient = process.env.NOTIFICATION_EMAIL || DEFAULT_RECIPIENT;
@@ -465,6 +465,7 @@ async function sendNotifications(data: Enquiry, submittedAt: string) {
   const sheetLink = process.env.GOOGLE_SHEET_ID ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(process.env.GOOGLE_SHEET_ID)}/edit` : "";
   const ownerBody = `
     <p style="margin:0 0 22px;color:#555;font-size:15px;line-height:1.65;">A new prospect has completed the consultation questionnaire. Their key details are below.</p>
+    ${stored ? "" : `<div style="margin:0 0 20px;padding:12px 14px;background:#fff4e5;border-left:4px solid #e58b00;color:#633b00;font-size:13px;line-height:1.5;"><strong>Spreadsheet sync was delayed.</strong> Keep this email as the enquiry record.</div>`}
     <div style="display:inline-block;margin:0 0 20px;padding:8px 12px;background:#fff7c7;border-left:4px solid #ffd000;color:#111;font-size:13px;font-weight:700;">${escapeHtml(data.readiness)}</div>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
       ${detailRow("Name", data.name)}
@@ -493,22 +494,28 @@ async function sendNotifications(data: Enquiry, submittedAt: string) {
   const ownerText = `New consultation request\n\nName: ${data.name}\nEmail: ${data.email}\nBusiness: ${data.business}\nGoal: ${data.goal}\nBudget: ${data.budget}\nReadiness: ${data.readiness}\nChallenge: ${data.challenge}\nSubmitted: ${localTime} (Asia/Kathmandu)${sheetLink ? `\nSheet: ${sheetLink}` : ""}`;
   const customerText = `Hi ${data.name},\n\nThanks for sharing what is happening in your business. I’ve received your consultation request and will review your answers before getting back to you.\n\nConsultation focus: ${data.goal}\n\nI’ll look at your goal, budget, timeline and current challenge, then reply with the best next step for your business.\n\nSpeak soon,\nSaugat Basnet\nDigital Saugat`;
 
-  await transporter.sendMail({
+  const [ownerResult, customerResult] = await Promise.allSettled([transporter.sendMail({
     from: `Digital Saugat <${gmailUser}>`,
     to: recipient,
     replyTo: { address: data.email, name: data.name },
+    messageId: `<owner.${data.submissionId}@digital-saugat.local>`,
     subject: `New consultation enquiry — ${data.name}`,
     text: ownerText,
     html: emailShell(`New enquiry from ${data.name}`, "New consultation enquiry", ownerBody),
-  });
-  await transporter.sendMail({
+  }), transporter.sendMail({
     from: `Digital Saugat <${gmailUser}>`,
     to: { address: data.email, name: data.name },
     replyTo: recipient,
+    messageId: `<customer.${data.submissionId}@digital-saugat.local>`,
     subject: "Your Digital Saugat consultation request",
     text: customerText,
     html: emailShell("Your consultation request has been received", "Thanks — I’ve received your request.", customerBody),
-  });
+  })]);
+
+  return {
+    ownerSent: ownerResult.status === "fulfilled",
+    customerSent: customerResult.status === "fulfilled",
+  };
 }
 
 export async function POST(request: Request) {
@@ -527,35 +534,37 @@ export async function POST(request: Request) {
   }
   const data = validated.data;
 
-  let token: string;
+  const submittedAt = new Date().toISOString();
+  let token: string | null = null;
+  let record: SheetRecord | null = null;
+  let storageError: unknown = null;
+
   try {
     token = await googleAccessToken();
   } catch (error) {
+    storageError = error;
     console.error("consultation_storage_unavailable", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
-    return json({ received: false, message: "The enquiry service is temporarily unavailable. Please try again later." }, 503);
   }
 
-  let record: SheetRecord | null;
-  const submittedAt = new Date().toISOString();
-  try {
-    await ensureSheetPresentation(token);
-  } catch (error) {
-    console.warn("consultation_sheet_formatting_failed", error instanceof Error ? error.message : "unknown");
-  }
-  try {
-    record = await findRecord(token, data.submissionId);
-    if (!record) {
-      record = await appendRecord(token, data, submittedAt);
+  if (token) {
+    try {
+      await ensureSheetPresentation(token);
+    } catch (error) {
+      console.warn("consultation_sheet_formatting_failed", error instanceof Error ? error.message : "unknown");
     }
-  } catch (error) {
-    console.error("consultation_storage_failed", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
-    return json({ received: false, message: "The enquiry service is temporarily unavailable. Please try again later." }, 503);
+    try {
+      record = await findRecord(token, data.submissionId);
+      if (!record) record = await appendRecord(token, data, submittedAt);
+    } catch (error) {
+      storageError = error;
+      console.error("consultation_storage_failed", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
+    }
   }
 
-  const isNewRecord = record.values.length >= 11;
-  if (record.values[7] === "SENT") return json({ received: true, notified: true, duplicate: true });
+  if (record?.values[7] === "SENT") return json({ received: true, notified: true, stored: true, duplicate: true });
 
-  const storedData: Enquiry = {
+  const isNewRecord = Boolean(record && record.values.length >= 11);
+  const notificationData: Enquiry = record ? {
     submissionId: record.values[0] || data.submissionId,
     name: record.values[2] || data.name,
     email: record.values[3] || data.email,
@@ -566,15 +575,34 @@ export async function POST(request: Request) {
     challenge: record.values[5] || data.challenge,
     sourcePageUrl: record.values[6] || data.sourcePageUrl,
     formCheck: "",
-  };
+  } : data;
 
   try {
-    await sendNotifications(storedData, record.values[1] || submittedAt);
-    await updateStatus(token, record.row, "SENT");
-    return json({ received: true, notified: true });
+    const notification = await sendNotifications(notificationData, record?.values[1] || submittedAt, Boolean(record));
+    const notified = notification.ownerSent && notification.customerSent;
+    if (record && token) {
+      await updateStatus(token, record.row, notified ? "SENT" : "PARTIAL — check email delivery");
+    }
+    if (record || notification.ownerSent) {
+      return json({
+        received: true,
+        notified,
+        stored: Boolean(record),
+        customerConfirmed: notification.customerSent,
+      }, notified ? 200 : 202);
+    }
   } catch (error) {
-    try { await updateStatus(token, record.row, "FAILED — retry available"); } catch { /* The saved row remains the source of truth. */ }
     console.error("consultation_notification_failed", data.submissionId.slice(-8), error instanceof Error ? error.message : "unknown");
-    return json({ received: true, notified: false, retryAvailable: true }, 202);
   }
+
+  if (record && token) {
+    try { await updateStatus(token, record.row, "FAILED — retry available"); } catch { /* The saved row remains the source of truth. */ }
+    return json({ received: true, notified: false, stored: true, retryAvailable: true }, 202);
+  }
+
+  console.error("consultation_unavailable", data.submissionId.slice(-8), storageError instanceof Error ? storageError.message : "all_delivery_channels_failed");
+  return json({
+    received: false,
+    message: "I couldn’t send this automatically. Your answers are still here—please try once more or email digitalsaugatb@gmail.com.",
+  }, 503);
 }

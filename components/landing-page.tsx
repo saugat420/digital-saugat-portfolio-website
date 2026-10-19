@@ -132,12 +132,35 @@ export function LandingPage() {
     };
 
     try {
-      const response = await fetch("/api/consultation", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const result = (await response.json()) as { received?: boolean; notified?: boolean; message?: string };
+      let result: { received?: boolean; notified?: boolean; message?: string } | null = null;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const response = await fetch("/api/consultation", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const responseText = await response.text();
+          let parsed: { received?: boolean; notified?: boolean; message?: string } = {};
+          if (responseText) {
+            try { parsed = JSON.parse(responseText) as typeof parsed; } catch { /* HTTP status remains authoritative. */ }
+          }
+
+          if (response.ok) {
+            result = parsed.received === false ? parsed : { ...parsed, received: true };
+            break;
+          }
+          if (response.status < 500 || attempt === 2) {
+            result = parsed;
+            break;
+          }
+        } catch {
+          if (attempt === 2) throw new Error("network_failed");
+        }
+        await new Promise((resolve) => window.setTimeout(resolve, 650 * (attempt + 1)));
+      }
+
+      if (!result) throw new Error("submission_failed");
       if (result.received) {
         setFormState({
           kind: "success",
@@ -152,9 +175,9 @@ export function LandingPage() {
         }
         return;
       }
-      setFormState({ kind: "error", message: result.message || "The enquiry service is temporarily unavailable. Please try again later." });
+      setFormState({ kind: "error", message: result.message || "I couldn’t send this automatically. Your answers are still here—please try once more or email digitalsaugatb@gmail.com." });
     } catch {
-      setFormState({ kind: "error", message: "The enquiry service is temporarily unavailable. Please try again later." });
+      setFormState({ kind: "error", message: "I couldn’t send this automatically. Your answers are still here—please try once more or email digitalsaugatb@gmail.com." });
     }
   }
 
