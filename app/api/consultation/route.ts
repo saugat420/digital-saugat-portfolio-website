@@ -173,6 +173,7 @@ function spreadsheetUrl(suffix = "") {
 async function getSheetId(token: string) {
   const response = await fetch(`${spreadsheetUrl()}?fields=sheets.properties(sheetId,title)`, {
     headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
   if (!response.ok) throw new Error("google_sheet_metadata_failed");
   const metadata = await response.json() as {
@@ -192,7 +193,10 @@ async function ensureSheetPresentation(token: string) {
   });
   if (!headerResponse.ok) throw new Error("google_sheet_header_failed");
 
-  const metadataResponse = await fetch(`${spreadsheetUrl()}?fields=sheets(properties(sheetId,title),bandedRanges(bandedRangeId))`, { headers: authHeaders });
+  const metadataResponse = await fetch(`${spreadsheetUrl()}?fields=sheets(properties(sheetId,title),bandedRanges(bandedRangeId))`, {
+    headers: authHeaders,
+    cache: "no-store",
+  });
   if (!metadataResponse.ok) throw new Error("google_sheet_metadata_failed");
   const metadata = await metadataResponse.json() as {
     sheets?: Array<{
@@ -329,14 +333,21 @@ async function ensureSheetPresentation(token: string) {
 }
 
 async function findRecord(token: string, id: string): Promise<SheetRecord | null> {
-  const idResponse = await fetch(sheetsUrl("A:A"), { headers: { authorization: `Bearer ${token}` } });
+  const idResponse = await fetch(sheetsUrl("A:A"), {
+    headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
   if (!idResponse.ok) throw new Error("google_sheet_read_failed");
   const idResult = await idResponse.json() as { values?: string[][] };
-  const index = (idResult.values || []).findIndex((row) => row[0] === id);
+  const idRows = idResult.values || [];
+  const index = idRows.findIndex((row) => row[0] === id);
   if (index < 0) return null;
 
   const row = index + 1;
-  const recordResponse = await fetch(sheetsUrl(`A${row}:K${row}`), { headers: { authorization: `Bearer ${token}` } });
+  const recordResponse = await fetch(sheetsUrl(`A${row}:K${row}`), {
+    headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
   if (!recordResponse.ok) throw new Error("google_sheet_record_read_failed");
   const recordResult = await recordResponse.json() as { values?: string[][] };
   return { row, values: recordResult.values?.[0] || [] };
@@ -568,9 +579,6 @@ export async function POST(request: Request) {
   }
 
   if (record?.values[7] === "SENT") return json({ received: true, notified: true, stored: true, duplicate: true });
-  if (record) {
-    console.info("consultation_record_found", data.submissionId.slice(-8), record.row, record.values[7] || "EMPTY");
-  }
 
   const isNewRecord = Boolean(record && record.values.length >= 11);
   const notificationData: Enquiry = record ? {
