@@ -568,6 +568,9 @@ export async function POST(request: Request) {
   }
 
   if (record?.values[7] === "SENT") return json({ received: true, notified: true, stored: true, duplicate: true });
+  if (record) {
+    console.info("consultation_record_found", data.submissionId.slice(-8), record.row, record.values[7] || "EMPTY");
+  }
 
   const isNewRecord = Boolean(record && record.values.length >= 11);
   const notificationData: Enquiry = record ? {
