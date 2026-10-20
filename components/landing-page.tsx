@@ -23,6 +23,8 @@ const process = [
   { number: "04", title: "Improve", copy: "Refine the experience using real data." },
 ];
 
+const CONSULTATION_ENDPOINT = "https://digital-saugat-portfolio-website.vercel.app/api/consultation";
+
 type FormState =
   | { kind: "idle"; message: "" }
   | { kind: "success"; message: string }
@@ -259,7 +261,7 @@ export function LandingPage() {
             <h2>Let’s turn more interest into customers.</h2>
             <p>Answer a few quick questions so I can understand your goals, recommend the right next step and make our consultation useful from the start.</p>
           </div>
-          <form className="consultation-form" method="post" action="/api/consultation">
+          <form className="consultation-form" method="post" action={CONSULTATION_ENDPOINT}>
             <div className="honeypot" aria-hidden="true">
               <input name="contact_preference_confirm" type="text" tabIndex={-1} autoComplete="new-password" />
             </div>

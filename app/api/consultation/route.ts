@@ -24,6 +24,11 @@ const attempts = new Map<string, { count: number; resetAt: number }>();
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 5;
 const DEFAULT_RECIPIENT = "digitalsaugatb@gmail.com";
+const PUBLIC_FORM_ORIGINS = new Set([
+  "https://digital-saugat-portfolio-website.vercel.app",
+  "https://digitalsaugat.com",
+  "https://www.digitalsaugat.com",
+]);
 const GOALS = new Set([
   "More qualified leads",
   "Better website or landing page conversions",
@@ -395,6 +400,8 @@ export async function POST(request: Request) {
   const contentType = request.headers.get("content-type") || "";
   const isNativeForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
   const requestUrl = new URL(request.url);
+  const origin = request.headers.get("origin");
+  const verifiedOrigin = origin && (origin === requestUrl.origin || PUBLIC_FORM_ORIGINS.has(origin)) ? origin : requestUrl.origin;
   const respond = (body: Record<string, unknown>, status = 200) => {
     if (!isNativeForm) return json(body, status);
 
@@ -402,7 +409,7 @@ export async function POST(request: Request) {
     if (body.received === true) result = body.notified === false ? "delayed" : "received";
     else if (status >= 500) result = "retry";
 
-    const destination = new URL(requestUrl.origin);
+    const destination = new URL(verifiedOrigin);
     destination.pathname = "/";
     destination.search = "";
     destination.searchParams.set("enquiry", result);
@@ -411,8 +418,7 @@ export async function POST(request: Request) {
   };
 
   if (Number(request.headers.get("content-length") || 0) > 10_000) return respond({ message: "Please shorten your message and try again." }, 413);
-  const origin = request.headers.get("origin");
-  if (origin && requestUrl.origin !== origin) return respond({ message: "This request could not be verified." }, 403);
+  if (origin && origin !== requestUrl.origin && !PUBLIC_FORM_ORIGINS.has(origin)) return respond({ message: "This request could not be verified." }, 403);
   if (isRateLimited(request)) return respond({ message: "Too many attempts. Please wait a few minutes and try again." }, 429);
 
   let input: unknown;
